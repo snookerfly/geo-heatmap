@@ -14,6 +14,7 @@ import webbrowser
 from xml.etree import ElementTree
 from xml.dom import minidom
 import zipfile
+import mysql.connector
 
 
 class Generator:
@@ -127,6 +128,31 @@ class Generator:
                     self.updateCoord(coords)
                 pb.update(i)
 
+    def loadTeslaLoggerData(self, date_range):
+        """Loads location data from TeslaLogger MySQL table pos
+
+        Arguments:
+            date_range {tuple} -- A tuple containing the min-date and max-date.
+                e.g.: (None, None), (None, '2019-01-01'), ('2017-02-11'), ('2019-01-01')
+        """
+
+        mydb = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="teslalogger",
+            database="teslalogger")
+        mycursor = mydb.cursor()
+        mycursor.execute("SELECT Datum, lat, lng FROM pos ORDER BY Datum")
+        myresult = mycursor.fetchall()
+        w = [Bar(), Percentage(), " ", ETA()]
+
+        with ProgressBar(max_value=len(myresult), widgets=w) as pb:
+            for (Datum, lat, lng) in myresult:
+                coords=(round(float(lat), 6), round(float(lng), 6))
+                if dateInRange(Datum, date_range):
+                    self.updateCoord(coords)
+                pb.next()
+
     def loadGPXData(self, file_name, date_range):
         """Loads location data from the given GPX file.
 
@@ -136,16 +162,17 @@ class Generator:
             date_range {tuple} -- A tuple containing the min-date and max-date.
                 e.g.: (None, None), (None, '2019-01-01'), ('2017-02-11'), ('2019-01-01')
         """
-        xmldoc = minidom.parse(file_name)
-        gxtrack = xmldoc.getElementsByTagName("trkpt")
-        w = [Bar(), Percentage(), " ", ETA()]
+
+        xmldoc=minidom.parse(file_name)
+        gxtrack=xmldoc.getElementsByTagName("trkpt")
+        w=[Bar(), Percentage(), " ", ETA()]
 
         with ProgressBar(max_value=len(gxtrack), widgets=w) as pb:
             for i, trkpt in enumerate(gxtrack):
-                lat = trkpt.getAttribute("lat")
-                lon = trkpt.getAttribute("lon")
-                coords = (round(float(lat), 6), round(float(lon), 6))
-                date = trkpt.getElementsByTagName("time")[0].firstChild.data
+                lat=trkpt.getAttribute("lat")
+                lon=trkpt.getAttribute("lon")
+                coords=(round(float(lat), 6), round(float(lon), 6))
+                date=trkpt.getElementsByTagName("time")[0].firstChild.data
                 if dateInRange(date[:10], date_range):
                     self.updateCoord(coords)
                 pb.update(i)
@@ -162,15 +189,15 @@ class Generator:
             </h1>
         </div>
         """
-        zip_file = zipfile.ZipFile(file_name)
-        namelist = zip_file.namelist()
-        (html_path,) = fnmatch.filter(namelist, "Takeout/*.html")
+        zip_file=zipfile.ZipFile(file_name)
+        namelist=zip_file.namelist()
+        (html_path,)=fnmatch.filter(namelist, "Takeout/*.html")
         with zip_file.open(html_path) as read_file:
-            soup = BeautifulSoup(read_file, "html.parser")
-        (elem,) = soup.select(
+            soup=BeautifulSoup(read_file, "html.parser")
+        (elem,)=soup.select(
             "#service-tile-LOCATION_HISTORY > button > div.service_summary > div > h1[data-english-name=LOCATION_HISTORY]")
-        name = elem["data-folder-name"]
-        (data_path,) = fnmatch.filter(
+        name=elem["data-folder-name"]
+        (data_path,)=fnmatch.filter(
             namelist,
             "Takeout/{name}/{name}.*".format(name=name))
         print("Reading location data file from zip archive: {!r}".format(
@@ -190,8 +217,8 @@ class Generator:
         self.coordinates[coords] += 1
         self.stats["Data points"] += 1
         if self.coordinates[coords] > self.max_magnitude:
-            self.max_coordinates = coords
-            self.max_magnitude = self.coordinates[coords]
+            self.max_coordinates=coords
+            self.max_magnitude=self.coordinates[coords]
 
     def generateMap(self, settings):
         """Generates the heatmap.
@@ -202,24 +229,24 @@ class Generator:
         Returns:
             Map -- The Heatmap.
         """
-        tiles = settings["tiles"]
-        zoom_start = settings["zoom_start"]
-        radius = settings["radius"]
-        blur = settings["blur"]
-        min_opacity = settings["min_opacity"]
-        max_zoom = settings["max_zoom"]
+        tiles=settings["tiles"]
+        zoom_start=settings["zoom_start"]
+        radius=settings["radius"]
+        blur=settings["blur"]
+        min_opacity=settings["min_opacity"]
+        max_zoom=settings["max_zoom"]
 
-        map_data = [(coords[0], coords[1], magnitude)
+        map_data=[(coords[0], coords[1], magnitude)
                     for coords, magnitude in self.coordinates.items()]
 
         # Generate map
-        m = folium.Map(location=self.max_coordinates,
+        m=folium.Map(location=self.max_coordinates,
                        zoom_start=zoom_start,
                        tiles=tiles,
                        attr="<a href=https://github.com/luka1199/geo-heatmap>geo-heatmap</a>")
 
         # Generate heat map
-        heatmap = HeatMap(map_data,
+        heatmap=HeatMap(map_data,
                           max_val=self.max_magnitude,
                           min_opacity=min_opacity,
                           radius=radius,
@@ -242,6 +269,9 @@ class Generator:
             settings {dict} -- The settings for the heatmap.
         """
         self.resetStats()
+
+        if teslalogger:
+            self.loadTeslaLoggerData(date_range)
 
         for i, data_file in enumerate(data_files):
             print("\n({}/{}) Loading data from {}".format(
@@ -267,7 +297,7 @@ class Generator:
         print("\n({}/{}) Generating heatmap".format(
             len(data_files) + 1,
             len(data_files) + 2))
-        m = self.generateMap(settings)
+        m=self.generateMap(settings)
         print("\n({}/{}) Saving map to {}\n".format(
             len(data_files) + 2,
             len(data_files) + 2,
@@ -280,9 +310,9 @@ class Generator:
         print()
 
 if __name__ == "__main__":
-    parser = ArgumentParser(formatter_class=RawTextHelpFormatter)
+    parser=ArgumentParser(formatter_class=RawTextHelpFormatter)
     parser.add_argument(
-        "files", metavar="file", type=str, nargs="+", help="Any of the following files:\n"
+        "files", metavar="file", type=str, nargs="*", help="Any of the following files:\n"
         "- Your location history JSON file from Google Takeout\n"
         "- Your location history KML file from Google Takeout\n"
         "- The takeout-*.zip raw download from Google Takeout \nthat contains either of the above files\n"
@@ -293,7 +323,10 @@ if __name__ == "__main__":
                         help="The earliest date from which you want to see data in the heatmap.")
     parser.add_argument("--max-date", dest="max_date", metavar="YYYY-MM-DD", type=str, required=False,
                         help="The latest date from which you want to see data in the heatmap.")
-    parser.add_argument("-s", "--stream", dest="stream", action="store_true", help="Option to iteratively load data.")
+    parser.add_argument("-s", "--stream", dest="stream",
+                        action="store_true", help="Option to iteratively load data.")
+    parser.add_argument("-t", "--teslalogger", dest="teslalogger", action="store_true",
+                        help="Load data from TeslaLogger db pos table.", required=False)
     parser.add_argument("--map", "-m", dest="map", metavar="MAP", type=str, required=False, default="OpenStreetMap",
                         help="The name of the map tiles you want to use.\n" \
                         "(e.g. 'OpenStreetMap', 'StamenTerrain', 'StamenToner', 'StamenWatercolor')")
@@ -309,12 +342,13 @@ if __name__ == "__main__":
                         help="The maximum zoom of the heatmap. (default: %(default)s)", default=4)
 
 
-    args = parser.parse_args()
-    data_file = args.files
-    output_file = args.output
-    date_range = args.min_date, args.max_date
-    stream_data = args.stream
-    settings = {
+    args=parser.parse_args()
+    data_file=args.files
+    output_file=args.output
+    date_range=args.min_date, args.max_date
+    stream_data=args.stream
+    teslalogger=args.teslalogger
+    settings={
         "tiles": args.map,
         "zoom_start": args.zoom_start,
         "radius": args.radius,
@@ -323,7 +357,7 @@ if __name__ == "__main__":
         "max_zoom": args.max_zoom
     }
 
-    generator = Generator()
+    generator=Generator()
     generator.run(data_file, output_file, date_range, stream_data, settings)
     # Check if browser is text-based
     if not isTextBasedBrowser(webbrowser.get()):
@@ -333,4 +367,5 @@ if __name__ == "__main__":
         except webbrowser.Error:
             print("[info] No runnable browser found. Open {} manually.".format(
                 output_file))
-            print("[info] Path to heatmap file: \"{}\"".format(os.path.abspath(output_file)))
+            print("[info] Path to heatmap file: \"{}\"".format(
+                os.path.abspath(output_file)))
